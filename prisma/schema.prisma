@@ -1,0 +1,432 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  USER
+  COACH
+  ADMIN
+  SUPERADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  COACH_ASSIGNED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  DISPUTED
+  REFUNDED
+}
+
+enum ServiceCategory {
+  ELO_BOOSTING
+  DUO_BOOSTING
+  PLACEMENT_BOOST
+  WIN_BOOST
+  PAY_PER_GAME
+  PROMO_HELP
+  RANKED_BOOST_PLAN
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+  DISPUTED
+}
+
+enum NotificationType {
+  SESSION
+  REVIEW
+  MESSAGE
+  RANK_CHANGE
+  SYSTEM
+}
+
+enum SupportConversationStatus {
+  BOT
+  WAITING_ADMIN
+  ANSWERED
+  CLOSED
+}
+
+enum SupportMessageSender {
+  USER
+  BOT
+  ADMIN
+  SYSTEM
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String?
+  imageUrl     String?
+  role         UserRole @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  riotAccounts         RiotAccount[]
+  goals                Goal[]
+  coachProfile         CoachProfile?
+  orders               Order[]               @relation("UserOrders")
+  messages             ChatMessage[]
+  reviews              Review[]
+  notifications        Notification[]
+  auditLogs            AdminAuditLog[]
+  sessions             Session[]
+  oauthAccounts        OAuthAccount[]
+  supportConversations SupportConversation[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  userAgent  String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model OAuthAccount {
+  id                     String    @id @default(cuid())
+  userId                 String
+  provider               String
+  providerAccountId      String
+  email                  String
+  name                   String?
+  imageUrl               String?
+  accessTokenCiphertext  String?
+  refreshTokenCiphertext String?
+  tokenExpiresAt         DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@index([email])
+}
+
+model RiotAccount {
+  id                     String    @id @default(cuid())
+  userId                 String
+  puuid                  String    @unique
+  gameName               String
+  tagLine                String
+  region                 String
+  platform               String
+  summonerId             String?
+  summonerIconUrl        String?
+  summonerLevel          Int?
+  accessTokenCiphertext  String?
+  refreshTokenCiphertext String?
+  tokenExpiresAt         DateTime?
+  linkedAt               DateTime  @default(now())
+  unlinkedAt             DateTime?
+  lastSyncedAt           DateTime?
+
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rankSnapshots RankSnapshot[]
+  matches       Match[]
+  championStats ChampionStats[]
+
+  @@index([userId])
+  @@index([platform, gameName, tagLine])
+}
+
+model RankSnapshot {
+  id            String   @id @default(cuid())
+  riotAccountId String
+  queueType     String
+  tier          String
+  division      String
+  lp            Int
+  wins          Int
+  losses        Int
+  source        String   @default("riot-api")
+  capturedAt    DateTime @default(now())
+
+  riotAccount RiotAccount @relation(fields: [riotAccountId], references: [id], onDelete: Cascade)
+
+  @@index([riotAccountId, capturedAt])
+}
+
+model Match {
+  id             String   @id @default(cuid())
+  riotAccountId  String
+  riotMatchId    String   @unique
+  queueType      String
+  champion       String
+  role           String
+  result         String
+  kills          Int
+  deaths         Int
+  assists        Int
+  csPerMin       Float
+  damage         Int
+  visionScore    Int
+  lpChange       Int?
+  lpChangeSource String?
+  playedAt       DateTime
+  durationSec    Int
+
+  riotAccount RiotAccount @relation(fields: [riotAccountId], references: [id], onDelete: Cascade)
+
+  @@index([riotAccountId, playedAt])
+  @@index([champion, role])
+}
+
+model ChampionStats {
+  id            String   @id @default(cuid())
+  riotAccountId String
+  champion      String
+  queueType     String
+  season        String
+  games         Int
+  winRate       Float
+  avgKda        Float
+  csPerMin      Float
+  damagePerMin  Float
+  updatedAt     DateTime @updatedAt
+
+  riotAccount RiotAccount @relation(fields: [riotAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([riotAccountId, champion, queueType, season])
+}
+
+model Goal {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  targetRank  String?
+  targetLp    Int?
+  targetValue Float?
+  current     Float     @default(0)
+  unit        String
+  dueAt       DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model CoachProfile {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  displayName          String
+  region               String
+  peakRank             String
+  roles                Json
+  championExpertise    Json
+  languages            Json
+  availability         Json
+  pricePerSessionCents Int
+  bio                  String
+  verificationDocUrl   String?
+  verifiedAt           DateTime?
+  rating               Float     @default(0)
+  reviewCount          Int       @default(0)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders  Order[]
+  reviews Review[]
+}
+
+model Service {
+  id                 String          @id @default(cuid())
+  slug               String          @unique
+  category           ServiceCategory
+  title              String
+  description        String
+  basePriceCents     Int
+  estimatedLengthMin Int
+  active             Boolean         @default(true)
+  addOns             Json
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  orders Order[]
+}
+
+model BoostPricingConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  publicId        String      @unique
+  userId          String
+  coachProfileId  String?
+  serviceId       String
+  status          OrderStatus @default(PENDING)
+  linkedAccountId String?
+  manualRiotId    String?
+  currentRank     String
+  targetGoal      String
+  role            String
+  champion        String?
+  startingLp      Int?
+  currentLp       Int?
+  goalLp          Int?
+  scheduledFor    DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user         User             @relation("UserOrders", fields: [userId], references: [id], onDelete: Cascade)
+  coachProfile CoachProfile?    @relation(fields: [coachProfileId], references: [id], onDelete: SetNull)
+  service      Service          @relation(fields: [serviceId], references: [id])
+  milestones   OrderMilestone[]
+  messages     ChatMessage[]
+  payment      Payment?
+  review       Review?
+
+  @@index([userId, status])
+  @@index([coachProfileId, status])
+}
+
+model OrderMilestone {
+  id          String    @id @default(cuid())
+  orderId     String
+  title       String
+  detail      String
+  completedAt DateTime?
+  dueAt       DateTime?
+  createdAt   DateTime  @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model ChatMessage {
+  id        String    @id @default(cuid())
+  orderId   String
+  senderId  String
+  body      String
+  fileUrl   String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  order  Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sender User  @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+}
+
+model Payment {
+  id                    String        @id @default(cuid())
+  orderId               String        @unique
+  stripeCheckoutSession String?
+  stripePaymentIntent   String?
+  amountCents           Int
+  currency              String        @default("usd")
+  status                PaymentStatus @default(PENDING)
+  refundedAt            DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id             String   @id @default(cuid())
+  orderId        String   @unique
+  userId         String
+  coachProfileId String
+  rating         Int
+  comment        String
+  createdAt      DateTime @default(now())
+
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coachProfile CoachProfile @relation(fields: [coachProfileId], references: [id], onDelete: Cascade)
+}
+
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  target    String
+  metadata  Json
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+model SupportConversation {
+  id            String                    @id @default(cuid())
+  visitorId     String?
+  userId        String?
+  title         String
+  status        SupportConversationStatus @default(BOT)
+  source        String                    @default("assistant")
+  lastMessageAt DateTime                  @default(now())
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+
+  user     User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messages SupportMessage[]
+
+  @@index([visitorId, lastMessageAt])
+  @@index([userId, lastMessageAt])
+  @@index([status, lastMessageAt])
+}
+
+model SupportMessage {
+  id             String               @id @default(cuid())
+  conversationId String
+  sender         SupportMessageSender
+  body           String
+  preparedKey    String?
+  readByUserAt   DateTime?
+  readByAdminAt  DateTime?
+  createdAt      DateTime             @default(now())
+
+  conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([sender, createdAt])
+}
